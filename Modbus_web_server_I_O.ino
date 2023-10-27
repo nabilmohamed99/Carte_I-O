@@ -1,20 +1,33 @@
 #include <SPI.h>
 #include <Ethernet.h>
 #include <ArduinoModbus.h>
-
+#include <EEPROM.h>
 byte mac[] = { 0xA8, 0x61, 0x0A, 0xAE, 0x7A, 0x08 };
-IPAddress ip(192, 168, 1, 221);
+IPAddress ip(192, 168, 1, 222);
 EthernetServer ethServer(502);
+EthernetServer ethServer1(80);
 ModbusTCPServer modbusTCPServer;
 
 int inputPins[] = {29, 28, 26, 24, 23, 22, A15, A14, A13, A12, A11, A10, A9, A8, 48, 47, 46, 45, 43, 42, 41, 40};
 int outputPins[]={0x1E,0x1f,0x20,0x21,0x22,0x23,0x24,0x24};
 int numBrs[] = {30, 31, 32, 33, 34, 35, 36, 37};
 void setup() {
-     Ethernet.init(53);
+
+
+
+   Ethernet.init(53);
   Serial.begin(9600);
   Ethernet.begin(mac, ip);
   ethServer.begin();
+    ethServer1.begin();
+    IPAddress storedIP;
+    readIPAddressFromEEPROM(storedIP);
+
+  if (storedIP != IPAddress(0, 0, 0, 0)) {
+    Serial.println("the");
+    ip = storedIP;
+    Ethernet.begin(mac, ip);
+  }
 
   if (!modbusTCPServer.begin()) {
     Serial.println("Failed to start Modbus TCP Server!");
@@ -41,8 +54,12 @@ void setup() {
 void loop() {
    EthernetClient modBusClient = ethServer.available();
 
+ 
+
   if (modBusClient) {
     Serial.println("Nouveau client modbus");
+ 
+
     modbusTCPServer.accept(modBusClient);
 
     while (modBusClient.connected()) {
@@ -55,10 +72,14 @@ void loop() {
 
   updateInputs();
 
-  EthernetClient webClient = ethServer.available();
+  EthernetClient webClient = ethServer1.available();
+    if (modBusClient){
+     int clientPort=modBusClient.remotePort();
+     Serial.println(clientPort);
+   }
   
   if (webClient) {
-
+    
   
     Serial.println("CLient web");
 
@@ -71,21 +92,37 @@ void loop() {
         Serial.write(c);
 
         if (c == '\n' && currentLineIsBlank) {
-          webClient.println("HTTP/1.1 200 OK");
-          webClient.println("Content-Type: text/html");
-          webClient.println("Connection: close");
-          webClient.println();
+   webClient.println("HTTP/1.1 200 OK");
+webClient.println("Content-Type: text/html");
+webClient.println("Connection: close");
+webClient.println();
+webClient.println("<!DOCTYPE HTML>");
+webClient.println("<html>");
+webClient.println("<head>");
+webClient.println("<style>");
+webClient.println("body { font-family: Arial, sans-serif; margin: 0; padding: 0; text-align: center; background-color: #f2f2f2; }");
+webClient.println(".navbar { background-color: #0074cc; color: #fff; padding: 10px; }");
+webClient.println(".container { display: flex; justify-content: center; align-items: center; height: 70vh; }");
+webClient.println("h1 { color: #333; }");
+webClient.println("form { width: 350px; padding: 20px; background-color: #fff; border-radius: 5px; box-shadow: 0px 0px 10px rgba(0, 0, 0, 0.2); }");
+webClient.println("input[type='text'] { width: 90%; padding: 10px; margin-bottom: 10px; font-size: 16px; border: 1px solid #ccc; border-radius: 3px; }");
+webClient.println("input[type='submit'] { width: 100%; padding: 10px 20px; font-size: 18px; background-color: blue; color: #fff; border: none; border-radius: 3px; cursor: pointer; }");
+webClient.println("</style>");
+webClient.println("</head>");
+webClient.println("<body>");
+webClient.println("<div class='navbar'>Meier Energy</div>"); // Navbar
+webClient.println("<div class='container'>");
+webClient.println("<form action='/setip' method='get'>");
+webClient.println("<h1>Changer l'adresse IP</h1>");
+webClient.println("Nouvelle adresse IP : <input type='text' name='ip' id='ip' required pattern='^(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$'><br><br>");
+webClient.println("<input type='submit' value='Configurer'>");
+webClient.println("</form>");
+webClient.println("</div>");
+webClient.println("</body>");
+webClient.println("</html>");
 
-          webClient.println("<!DOCTYPE HTML>");
-          webClient.println("<html>");
-          webClient.println("<body>");
-          webClient.println("<h1>Change IP Address</h1>");
-          webClient.println("<form action='/setip' method='get'>");
-          webClient.println("New IP Address: <input type='text' name='ip' id='ip' required><br><br>");
-          webClient.println("<input type='submit' value='Set IP'>");
-          webClient.println("</form>");
-          webClient.println("</body>");
-          webClient.println("</html>");
+
+
           break;
         }
 
@@ -114,6 +151,9 @@ void loop() {
         
           ip = newIP;
           Ethernet.begin(mac, ip);
+          writeIPAddressToEEPROM(ip);
+
+        
           
         }
       }
@@ -153,3 +193,26 @@ void updateRegisters() {
     }
   }
 }
+
+void readIPAddressFromEEPROM(IPAddress &ipAddr) {
+  int eepromAddr = 0;
+  byte ipOctets[4];
+  for (int i = 0; i < 4; i++) {
+    ipOctets[i] = EEPROM.read(eepromAddr++);
+  }
+  ipAddr = IPAddress(ipOctets);
+}
+
+
+void writeIPAddressToEEPROM(IPAddress ipAddr) {
+  
+  int eepromAddr = 0;
+  for (int i = 0; i < 4; i++) {
+    Serial.println(ipAddr[i]);
+    delay(10);
+    EEPROM.write(eepromAddr++, ipAddr[i]);
+  
+  }
+
+}
+
